@@ -46,6 +46,7 @@ return {
     last = { field = 'condition' },
     next = { { field = 'consequence', type = 'block', offsetcol = 1 } },
   },
+  -- TODO: else statement nodes can only be determined by field name
   ['switch_expression'] = {
     category = CATEGORY.SWITCH,
     next = { { field = 'body', offsetcol = 1 } },

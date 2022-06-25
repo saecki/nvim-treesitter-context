@@ -33,6 +33,7 @@ return {
     last = { { field = 'condition' } },
     next = { { field = 'consequence', type = 'compound_statement', offsetcol = 1 } },
   },
+  -- TODO: else statement nodes can only be determined by field name
   ['switch_statement'] = {
     category = CATEGORY.SWITCH,
     next = { { field = 'body', offsetcol = 1 } },

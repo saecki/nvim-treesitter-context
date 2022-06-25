@@ -18,4 +18,12 @@ return {
     category = CATEGORY.IF,
     last = { { type = 'then' } },
   },
+  ['elseif_statement'] = {
+    category = CATEGORY.IF,
+    last = { { type = 'then' } },
+  },
+  ['else_statement'] = {
+    category = CATEGORY.IF,
+    last = { { type = 'else' } },
+  },
 }

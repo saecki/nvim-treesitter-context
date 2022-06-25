@@ -42,6 +42,10 @@ return {
     category = CATEGORY.IF,
     next = { { field = 'body', offsetcol = 1 } },
   },
+  ['else_clause'] = {
+    category = CATEGORY.IF,
+    next = { { field = 'body', offsetcol = 1 } },
+  },
   ['if_let_expression'] = {
     category = CATEGORY.IF,
     next = { { field = 'body', offsetcol = 1 } },
