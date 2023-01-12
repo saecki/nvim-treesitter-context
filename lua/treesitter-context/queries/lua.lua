@@ -14,6 +14,10 @@ return {
     category = CATEGORY.WHILE,
     last = { { type = 'do' } },
   },
+  ['repeat_statement'] = {
+    category = CATEGORY.WHILE,
+    next = { { field = 'body' } },
+  },
   ['if_statement'] = {
     category = CATEGORY.IF,
     last = { { type = 'then' } },
