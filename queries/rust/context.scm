@@ -36,7 +36,7 @@
 
 (match_arm
   (block (_) @context.end)
-) @context.switch
+) @context.case
 
 (for_expression
   body: (_ (_) @context.end)
