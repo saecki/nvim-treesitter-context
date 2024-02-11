@@ -15,7 +15,7 @@ local all_contexts = {}
 --- @param ms? number
 --- @return F
 local function throttle(f, ms)
-  ms = ms or 200
+  ms = ms or 50
   local timer = assert(vim.loop.new_timer())
   local waiting = 0
   return function()
