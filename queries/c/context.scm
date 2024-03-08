@@ -9,40 +9,40 @@
 
 (function_definition
   body: (_ (_) @context.end)
-) @context
+) @context.function
 
 (for_statement
   (compound_statement) @context.end
-) @context
+) @context.loop
 
 (if_statement
   consequence: (_ (_) @context.end)
-) @context
+) @context.conditional
 
 (else_clause
   (_ (_) @context.end)
-) @context
+) @context.conditional
 
 (while_statement
   body: (_ (_) @context.end)
-) @context
+) @context.loop
 
 (do_statement
   body: (_ (_) @context.end)
-) @context
+) @context.loop
 
 (struct_specifier
   body: (_ (_) @context.end)
-) @context
+) @context.type
 
 (enum_specifier
   body: (_ (_) @context.end)
-) @context
+) @context.type
 
 (switch_statement
   body: (_) @context.end
-) @context
+) @context.conditional
 
 (case_statement
   value: (_) (_) @context.end
-) @context
+) @context.conditional
