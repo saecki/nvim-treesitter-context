@@ -13,6 +13,9 @@ Note: if you need support for Neovim 0.6.x please use the tag `compat/0.6`.
 ![theme](./static/demo.gif)
 
 ## Supported Languages
+
+Note: support for specific languages is strictly community maintained and can break from time to time as parsers are updated.
+
 <details>
 <summary>click to expand</summary
 
@@ -29,6 +32,7 @@ Note: if you need support for Neovim 0.6.x please use the tag `compat/0.6`.
   - [x] `cue`
   - [x] `d`
   - [x] `dart`
+  - [x] `devicetree`
   - [x] `elixir`
   - [x] `elm`
   - [x] `fennel`
@@ -63,6 +67,7 @@ Note: if you need support for Neovim 0.6.x please use the tag `compat/0.6`.
   - [x] `php`
   - [x] `php_only`
   - [x] `prisma`
+  - [x] `proto`
   - [x] `python`
   - [x] `r`
   - [x] `ruby` (and `rspec`)
@@ -103,7 +108,6 @@ Note: if you need support for Neovim 0.6.x please use the tag `compat/0.6`.
   - [ ] `commonlisp`
   - [ ] `cooklang`
   - [ ] `cpon`
-  - [ ] `devicetree`
   - [ ] `dhall`
   - [ ] `dockerfile`
   - [ ] `dot`
@@ -159,7 +163,6 @@ Note: if you need support for Neovim 0.6.x please use the tag `compat/0.6`.
   - [ ] `pioasm`
   - [ ] `po`
   - [ ] `poe_filter`
-  - [ ] `proto`
   - [ ] `prql`
   - [ ] `pug`
   - [ ] `ql`

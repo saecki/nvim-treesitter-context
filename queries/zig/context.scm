@@ -1,46 +1,59 @@
-(TestDecl) @context.function
-
-(LoopTypeExpr) @context.loop
-
-([
-  (IfTypeExpr)
-  (SwitchExpr)
-] @context.conditional)
-
-(Decl
-  (FnProto  (_))
-  (Block (_) @context.end)
+(test_declaration
+  (block ("{") @context.final)
 ) @context.function
 
-(VarDecl
-  (ErrorUnionExpr
-    (SuffixExpr
-      (ContainerDecl (ContainerDeclType) (_) @context.end)
-    )
+(comptime_statement
+  (block ("{") @context.final)
+) @context.function
+
+(variable_declaration
+  (struct_declaration
+    "{" @context.final
   )
 ) @context.type
 
-(VarDecl
-  (ErrorUnionExpr
-    (SuffixExpr
-      (ErrorSetDecl (_) @context.end)
-    )
+(variable_declaration
+  (enum_declaration
+    "{" @context.final
   )
 ) @context.type
 
-(IfStatement
-  (BlockExpr (_) @context.end)
+(variable_declaration
+  (union_declaration
+    "{" @context.final
+  )
+) @context.type
+
+(variable_declaration
+  (error_set_declaration
+    "{" @context.final
+  )
+) @context.type
+
+(function_declaration
+  body: (block
+    ("{") @context.final
+  )
+) @context.function
+
+(if_statement
+  (block_expression
+    (block ("{") @context.final)
+  )
 ) @context.conditional
 
-(SwitchProng
-  (AssignExpr) @context.end
+(switch_expression
+  "{" @context.final
 ) @context.conditional
 
-(LoopStatement
-  (_ (BlockExpr (_) @context.end))
+(for_statement
+  (block_expression
+    (block ("{") @context.final)
+  )
 ) @context.loop
 
-(LoopExpr
-  (_ (Block (_) @context.end))
+(while_statement
+  (block_expression
+    (block ("{") @context.final)
+  )
 ) @context.loop
-

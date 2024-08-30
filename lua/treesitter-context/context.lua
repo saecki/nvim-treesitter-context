@@ -92,8 +92,8 @@ end
 local context_range = cache.memoize(function(node, query)
   local bufnr = api.nvim_get_current_buf()
   local range = { node:range() } --- @type Range4
-  range[3] = range[1]
-  range[4] = -1
+  range[3] = range[1] + 1
+  range[4] = 0
 
   -- max_start_depth depth is only supported in nvim 0.10. It is ignored on
   -- versions 0.9 or less. It is only needed to improve performance
@@ -163,8 +163,8 @@ local function trim_contexts(context_ranges, context_lines, trim, top)
       table.remove(context_ranges, idx)
       table.remove(context_lines, idx)
     else
-      context_to_trim[3] = context_to_trim[3] - trim
-      context_to_trim[4] = -1
+      context_to_trim[3] = context_to_trim[3] - trim + (context_to_trim[4] == 0 and 0 or 1)
+      context_to_trim[4] = 0
       local context_lines_to_trim = context_lines[idx]
       for _ = 1, trim do
         context_lines_to_trim[#context_lines_to_trim] = nil
@@ -197,7 +197,12 @@ local function get_text_for_range(range)
     end_row = end_row - 1
   end
 
-  return { start_row, 0, end_row, -1 }, lines
+  if end_col == -1 then
+    end_col = 0
+    end_row = end_row + 1
+  end
+
+  return { start_row, 0, end_row, end_col }, lines
 end
 
 local M = {}
@@ -279,10 +284,28 @@ local function tbl_flatten(t)
   return result
 end
 
+--- @param range Range4
+local function range_is_valid(range)
+  -- Zero width
+  if range[1] == range[3] and range[2] == range[4] then
+    return false
+  end
+
+  return true
+end
+
 --- @param bufnr integer
 --- @param winid integer
 --- @return Range4[]?, string[]?
 function M.get(bufnr, winid)
+  -- vim.treesitter.get_parser() calls bufload(), but we don't actually want to load the buffer:
+  -- this method is called during plugin init, before other plugins or the user's config
+  -- have a chance to initialize.
+  -- They may want to register autocmds, and this would prevent them from firing.
+  if not api.nvim_buf_is_loaded(bufnr) then
+    return
+  end
+
   if not pcall(vim.treesitter.get_parser, bufnr) then
     return
   end
@@ -324,20 +347,21 @@ function M.get(bufnr, winid)
         -- Only process the parent if it is not in view.
         if parent_start_row < contexts_end_row then
           local range0 = context_range(parent, query)
-          if range0 then
+          if range0 and range_is_valid(range0) then
             local range, lines = get_text_for_range(range0)
+            if range_is_valid(range) then
+              local last_context = context_ranges[#context_ranges]
+              if last_context and parent_start_row == last_context[1] then
+                -- If there are multiple contexts on the same row, then prefer the inner
+                contexts_height = contexts_height - util.get_range_height(last_context)
+                context_ranges[#context_ranges] = nil
+                context_lines[#context_lines] = nil
+              end
 
-            local last_context = context_ranges[#context_ranges]
-            if last_context and parent_start_row == last_context[1] then
-              -- If there are multiple contexts on the same row, then prefer the inner
-              contexts_height = contexts_height - util.get_range_height(last_context)
-              context_ranges[#context_ranges] = nil
-              context_lines[#context_lines] = nil
+              contexts_height = contexts_height + util.get_range_height(range)
+              context_ranges[#context_ranges + 1] = range
+              context_lines[#context_lines + 1] = lines
             end
-
-            contexts_height = contexts_height + util.get_range_height(range)
-            context_ranges[#context_ranges + 1] = range
-            context_lines[#context_lines + 1] = lines
           end
         end
       end
