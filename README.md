@@ -89,13 +89,14 @@ Note: support for specific languages is strictly community maintained and can br
   - [x] `typoscript`
   - [x] `usd`
   - [x] `verilog`
+  - [x] `vhdl`
   - [x] `vim`
   - [x] `vue`
   - [x] `xml`
   - [x] `yaml`
   - [x] `yang`
   - [x] `zig`
-  - [ ] `ada`
+  - [x] `ada`
   - [ ] `agda`
   - [ ] `arduino`
   - [ ] `astro`
@@ -145,7 +146,7 @@ Note: support for specific languages is strictly community maintained and can br
   - [ ] `json5`
   - [ ] `jsonc`
   - [ ] `jsx`
-  - [ ] `kdl`
+  - [x] `kdl`
   - [ ] `kotlin`
   - [ ] `lalrpop`
   - [ ] `ledger`
@@ -210,6 +211,7 @@ Note: calling `setup()` is optional.
 ```lua
 require'treesitter-context'.setup{
   enable = true, -- Enable this plugin (Can be enabled/disabled later via commands)
+  multiwindow = false, -- Enable multiwindow support.
   max_lines = 0, -- How many lines the window should span. Values <= 0 mean no limit.
   min_window_height = 0, -- Minimum editor window height to enable context. Values <= 0 mean no limit.
   line_numbers = true,
@@ -281,3 +283,16 @@ end, { silent = true })
 ## Adding support for other languages
 
 See [CONTRIBUTING.md](CONTRIBUTING.md)
+
+## Overriding the builtin for a given language
+
+Read [CONTRIBUTING.md](CONTRIBUTING.md) first.
+
+You can provide you own language files by adding them to the
+`runtimepath` (`:help runtimepath`).
+
+For example, creating `~/.config/nvim/queries/java/context.scm` will take
+precedence over the `queries/java/context.scm` included in `nvim-treesitter-context`
+as long as `~/.config/nvim` appears earlier in  `runtimepath`.
+
+You can check the value of `runtimepath` with `:set rtp`.
