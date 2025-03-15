@@ -20,7 +20,7 @@
 
 (table_constructor
   (_) @context.end
-) @context
+) @context.table
 
 (function_declaration
   parameters: (_) @context.final

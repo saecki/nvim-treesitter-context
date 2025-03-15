@@ -1,4 +1,3 @@
-
 --- @class (exact) TSContext.Config
 --- @field enable boolean
 --- @field multiwindow boolean
@@ -105,7 +104,7 @@ end
 setmetatable(M, {
   __index = function(_, k)
     return config[k]
-  end
+  end,
 })
 
 return M

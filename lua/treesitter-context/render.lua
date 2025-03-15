@@ -6,9 +6,11 @@ local config = require('treesitter-context.config')
 
 local ns = api.nvim_create_namespace('nvim-treesitter-context')
 
---- List of buffers that are to be deleted.
----@type integer[]
-local retired_buffers = {}
+--- List of free buffers that can be reused.
+--- @type integer[]
+local buffer_pool = {}
+
+local MAX_BUFFER_POOL_SIZE = 20
 
 --- @class WindowContext
 --- @field context_winid integer? The context window ID.
@@ -20,13 +22,33 @@ local retired_buffers = {}
 local window_contexts = {}
 
 --- @return integer buf
-local function create_buf()
+local function create_or_get_buf()
+  for index = #buffer_pool, 1, -1 do
+    local buf = table.remove(buffer_pool, index)
+    if api.nvim_buf_is_valid(buf) then
+      return buf
+    end
+  end
+
   local buf = api.nvim_create_buf(false, true)
 
   vim.bo[buf].undolevels = -1
-  vim.bo[buf].bufhidden = 'wipe'
 
   return buf
+end
+
+local function delete_excess_buffers()
+  if fn.getcmdwintype() ~= '' then
+    -- Can't delete buffers when the command-line window is open.
+    return
+  end
+
+  while #buffer_pool > MAX_BUFFER_POOL_SIZE do
+    local buf = table.remove(buffer_pool, #buffer_pool)
+    if api.nvim_buf_is_valid(buf) then
+      api.nvim_buf_delete(buf, { force = true })
+    end
+  end
 end
 
 --- @param winid integer
@@ -40,7 +62,7 @@ end
 local function display_window(winid, context_winid, width, height, col, ty, hl)
   if not context_winid then
     local sep = config.separator and { config.separator, 'TreesitterContextSeparator' } or nil
-    context_winid = api.nvim_open_win(create_buf(), false, {
+    context_winid = api.nvim_open_win(create_or_get_buf(), false, {
       win = winid,
       relative = 'win',
       width = width,
@@ -57,6 +79,7 @@ local function display_window(winid, context_winid, width, height, col, ty, hl)
     vim.wo[context_winid].wrap = false
     vim.wo[context_winid].foldenable = false
     vim.wo[context_winid].winhl = 'NormalFloat:' .. hl
+    vim.wo[context_winid].conceallevel = vim.wo[winid].conceallevel
   elseif api.nvim_win_is_valid(context_winid) then
     api.nvim_win_set_config(context_winid, {
       win = winid,
@@ -76,9 +99,9 @@ local function get_gutter_width(winid)
   return fn.getwininfo(winid)[1].textoff
 end
 
----@param name string
----@param from_buf integer
----@param to_buf integer
+--- @param name string
+--- @param from_buf integer
+--- @param to_buf integer
 local function copy_option(name, from_buf, to_buf)
   --- @cast name any
   local current = vim.bo[from_buf][name]
@@ -88,17 +111,38 @@ local function copy_option(name, from_buf, to_buf)
   end
 end
 
----@param bufnr integer
----@param row integer
----@param col integer
----@param opts vim.api.keyset.set_extmark
----@param ns0? integer
+--- @param bufnr integer
+--- @param row integer
+--- @param col integer
+--- @param opts vim.api.keyset.set_extmark
+--- @param ns0? integer
 local function add_extmark(bufnr, row, col, opts, ns0)
   local ok, err = pcall(api.nvim_buf_set_extmark, bufnr, ns0 or ns, row, col, opts)
   if not ok then
     local range = vim.inspect({ row, col, opts.end_row, opts.end_col }) --- @type string
-    error(string.format('Could not apply exmtark to %s: %s', range, err))
+    error(string.format('Could not apply exmtark to %s: %s', range, err), 2)
   end
+end
+
+--- @param buf_query vim.treesitter.highlighter.Query
+--- @param capture integer
+--- @return integer?
+local function get_hl(buf_query, capture)
+  --- @diagnostic disable-next-line: invisible naughty
+  if buf_query.get_hl_from_capture then
+    --- @diagnostic disable-next-line: invisible naughty
+    return buf_query:get_hl_from_capture(capture)
+  end
+  --- @diagnostic disable-next-line: invisible naughty
+  return buf_query.hl_cache[capture]
+end
+
+--- Is a position a after another position b?
+--- @param a [integer, integer] [row, col]
+--- @param b [integer, integer] [row, col]
+--- @return boolean
+local function is_after(a, b)
+  return a[1] > b[1] or (a[1] == b[1] and a[2] > b[2])
 end
 
 --- @param bufnr integer
@@ -118,7 +162,9 @@ local function highlight_contexts(bufnr, ctx_bufnr, contexts)
   local parser = buf_highlighter.tree
 
   parser:for_each_tree(function(tstree, ltree)
+    --- @diagnostic disable-next-line:invisible
     local buf_query = buf_highlighter:get_query(ltree:lang())
+    --- @diagnostic disable-next-line:invisible
     local query = buf_query:query()
     if not query then
       return
@@ -135,28 +181,31 @@ local function highlight_contexts(bufnr, ctx_bufnr, contexts)
         local range = vim.treesitter.get_range(node, bufnr, metadata[capture])
         local nsrow, nscol, nerow, necol = range[1], range[2], range[4], range[5]
 
-        if nerow > end_row or (nerow == end_row and necol > end_col) then
-          break
-        end
-
         if nsrow >= start_row then
+          if is_after({ nsrow, nscol }, { end_row, end_col }) then
+            -- Node range begins after the context range, skip it
+            break
+          elseif is_after({ nerow, necol }, { end_row, end_col }) then
+            -- Node range extends beyond the context range, clip it
+            nerow, necol = end_row, end_col
+          end
+
           local msrow = offset + (nsrow - start_row)
           local merow = offset + (nerow - start_row)
-          local hl --- @type integer
-          if buf_query.get_hl_from_capture then
-            hl = buf_query:get_hl_from_capture(capture)
-          else
-            hl = buf_query.hl_cache[capture]
-          end
+
           local priority = tonumber(metadata.priority)
             or (vim.hl and vim.hl.priorities.treesitter)
             or vim.highlight.priorities.treesitter
+
+          -- The "conceal" attribute can be set at the pattern level or on a particular capture
+          local conceal = metadata.conceal or metadata[capture] and metadata[capture].conceal
+
           add_extmark(ctx_bufnr, msrow, nscol, {
             end_row = merow,
             end_col = necol,
             priority = priority + pri_offset,
-            hl_group = hl,
-            conceal = metadata.conceal,
+            hl_group = get_hl(buf_query, capture),
+            conceal = conceal,
           })
 
           -- TODO(lewis6991): Extmarks of equal priority appear to apply
@@ -176,6 +225,7 @@ end
 
 --- @class StatusLineHighlight
 --- @field group string
+--- @field groups? string[]
 --- @field start integer
 
 --- @param ctx_node_line_num integer
@@ -209,7 +259,7 @@ local function build_lno_str(win, lnum, width)
       winid = win,
       use_statuscol_lnum = lnum,
       highlights = true,
-      fillchar = ' ',  -- Fixed in Neovim 0.10 (#396)
+      fillchar = ' ', -- Fixed in Neovim 0.10 (#396)
     })
     if ok then
       return data.str, data.highlights
@@ -222,9 +272,9 @@ local function build_lno_str(win, lnum, width)
   return string.format('%' .. width .. 'd', relnum or lnum)
 end
 
----@param bufnr integer
----@param row integer
----@param hl_group 'TreesitterContextBottom' | 'TreesitterContextLineNumberBottom'
+--- @param bufnr integer
+--- @param row integer
+--- @param hl_group 'TreesitterContextBottom' | 'TreesitterContextLineNumberBottom'
 local function highlight_bottom(bufnr, row, hl_group)
   add_extmark(bufnr, row, 0, {
     end_line = row + 1,
@@ -242,9 +292,14 @@ local function highlight_lno_str(buf, text, highlights)
       local col = hl.start
       local endcol = hlidx < #linehl and linehl[hlidx + 1].start or #text[line]
       if col ~= endcol then
+        local hl_groups = hl.groups or { hl.group }
+        for i, shl in ipairs(hl_groups) do
+          hl_groups[i] = shl:find('LineNr') and 'TreesitterContextLineNumber' or shl
+        end
         add_extmark(buf, line - 1, col, {
           end_col = endcol,
-          hl_group = hl.group:find('LineNr') and 'TreesitterContextLineNumber' or hl.group,
+          --- @diagnostic disable-next-line:assign-type-mismatch added in 0.11
+          hl_group = hl.groups and hl_groups or hl_groups[1],
         })
       end
     end
@@ -276,10 +331,10 @@ local function set_lines(bufnr, lines)
   return redraw
 end
 
----@param win integer
----@param bufnr integer
----@param contexts Range4[]
----@param gutter_width integer
+--- @param win integer
+--- @param bufnr integer
+--- @param contexts Range4[]
+--- @param gutter_width integer
 local function render_lno(win, bufnr, contexts, gutter_width)
   local lno_text = {} --- @type string[]
   local lno_highlights = {} --- @type StatusLineHighlight[][]
@@ -297,7 +352,7 @@ local function render_lno(win, bufnr, contexts, gutter_width)
   highlight_bottom(bufnr, #lno_text - 1, 'TreesitterContextLineNumberBottom')
 end
 
----@param context_winid? integer
+--- @param context_winid? integer
 local function close(context_winid)
   vim.schedule(function()
     if context_winid == nil or not api.nvim_win_is_valid(context_winid) then
@@ -305,25 +360,13 @@ local function close(context_winid)
     end
 
     local bufnr = api.nvim_win_get_buf(context_winid)
-    if bufnr ~= nil then
-      table.insert(retired_buffers, bufnr)
+    api.nvim_win_close(context_winid, true)
+    if bufnr ~= nil and api.nvim_buf_is_valid(bufnr) then
+      -- We can't delete the buffer in-place if the pool is full and the command-line window is open.
+      -- Instead, add the buffer to the pool and let delete_excess_buffers() address this situation.
+      table.insert(buffer_pool, bufnr)
     end
-    if api.nvim_win_is_valid(context_winid) then
-      api.nvim_win_close(context_winid, true)
-    end
-
-    if fn.getcmdwintype() ~= '' then
-      -- Can't delete buffers when the command-line window is open.
-      return
-    end
-
-    -- Delete retired buffers.
-    for _, retired_bufnr in ipairs(retired_buffers) do
-      if api.nvim_buf_is_valid(retired_bufnr) then
-        api.nvim_buf_delete(retired_bufnr, { force = true })
-      end
-    end
-    retired_buffers = {}
+    delete_excess_buffers()
   end)
 end
 
@@ -331,6 +374,7 @@ end
 --- @param context_winid integer
 local function horizontal_scroll_contexts(winid, context_winid)
   local active_win_view = api.nvim_win_call(winid, fn.winsaveview)
+  --- @type vim.fn.winsaveview.ret
   local context_win_view = api.nvim_win_call(context_winid, fn.winsaveview)
   if active_win_view.leftcol ~= context_win_view.leftcol then
     context_win_view.leftcol = active_win_view.leftcol
@@ -340,24 +384,39 @@ local function horizontal_scroll_contexts(winid, context_winid)
   end
 end
 
----@param bufnr integer
----@param ctx_bufnr integer
----@param contexts Range4[]
+--- @param bufnr integer
+--- @param ctx_bufnr integer
+--- @param contexts Range4[]
 local function copy_extmarks(bufnr, ctx_bufnr, contexts)
   local offset = 0
   for _, context in ipairs(contexts) do
     local ctx_srow, ctx_scol, ctx_erow, ctx_ecol = context[1], context[2], context[3], context[4]
-    local extmarks = api.nvim_buf_get_extmarks(bufnr, -1, {ctx_srow, ctx_scol}, {ctx_erow, ctx_ecol}, { details = true })
+    local extmarks = api.nvim_buf_get_extmarks(
+      bufnr,
+      -1,
+      { ctx_srow, ctx_scol },
+      { ctx_erow, ctx_ecol },
+      { details = true }
+    )
 
     for _, m in ipairs(extmarks) do
-      --- @type integer, integer, integer, vim.api.keyset.extmark_details
-      local id, row, col, opts = m[1], m[2], m[3], m[4]
+      local id = m[1]
+      local row = m[2]
+      local col = m[3] --[[@as integer]]
+      local opts = m[4] --[[@as vim.api.keyset.extmark_details]]
 
       local start_row = offset + (row - ctx_srow)
 
       local end_row --- @type integer?
-      if opts.end_row then
-        end_row = offset + (opts.end_row - ctx_srow)
+      local end_col = opts.end_col
+      local mend_row = opts.end_row
+      if mend_row then
+        if is_after({ mend_row, end_col }, { ctx_erow, ctx_ecol }) then
+          mend_row = ctx_erow
+          end_col = ctx_ecol
+        end
+
+        end_row = offset + (mend_row - ctx_srow)
       end
 
       -- Use pcall incase fields from opts are inconsistent with opts in
@@ -365,18 +424,22 @@ local function copy_extmarks(bufnr, ctx_bufnr, contexts)
       pcall(add_extmark, ctx_bufnr, start_row, col, {
         id = id,
         end_row = end_row,
-        end_col = opts.end_col,
+        end_col = end_col,
         priority = opts.priority,
         hl_group = opts.hl_group,
+        --- @diagnostic disable-next-line:assign-type-mismatch bug in core
         end_right_gravity = opts.end_right_gravity,
         right_gravity = opts.right_gravity,
         hl_eol = opts.hl_eol,
         virt_text = opts.virt_text,
+        virt_text_hide = opts.virt_text_hide,
         virt_text_pos = opts.virt_text_pos,
+        virt_text_repeat_linebreak = opts.virt_text_repeat_linebreak,
         virt_text_win_col = opts.virt_text_win_col,
         hl_mode = opts.hl_mode,
         line_hl_group = opts.line_hl_group,
         spell = opts.spell,
+        --- @diagnostic disable-next-line:assign-type-mismatch fixed in 0.11
         url = opts.url,
       }, opts.ns_id)
     end
@@ -486,11 +549,10 @@ function M.close(winid)
   end
 
   local window_context = window_contexts[winid]
-  if window_context == nil then
-    return
+  if window_context then
+    close(window_context.context_winid)
+    close(window_context.gutter_winid)
   end
-  close(window_context.context_winid)
-  close(window_context.gutter_winid)
 
   window_contexts[winid] = nil
 end
