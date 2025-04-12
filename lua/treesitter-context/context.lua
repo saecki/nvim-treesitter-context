@@ -83,23 +83,16 @@ end
 
 --- @param category string?
 --- @return boolean
-local function is_category_enabled(category)
-  local ft_categories = config.categories[vim.bo.filetype]
-  local ft_category = ft_categories and ft_categories[category]
-  if ft_category then
+local function is_category_enabled(lang, category)
+  local lang_categories = config.categories[lang]
+  local lang_category = lang_categories and lang_categories[category]
+  if lang_category then
     return true
-  elseif ft_category == nil then
-    -- ft specific category is not set, so check the default categories
+  elseif lang_category == nil then
+    -- language specific category is not set, so check the default categories
     local def_category = config.categories.default[category]
     if def_category then
       return true
-    elseif def_category == nil then
-      local lang = parsers.ft_to_lang(vim.bo.filetype)
-      vim.notify_once(
-        string.format('Unknown category \'%s\' in %s query', category, lang),
-        vim.log.levels.ERROR,
-        { title = 'nvim-treesitter-context' }
-      )
     end
   end
 
@@ -147,7 +140,9 @@ local context_range = cache.memoize(function(node, bufnr, query)
           r = true
         else
           local category = name:match('^context%.(.*)$')
-          r = is_category_enabled(category)
+          local root_tree = vim.treesitter.get_parser(bufnr)
+          local lang_tree = root_tree:language_for_range({ node0:range() })
+          r = is_category_enabled(lang_tree:lang(), category)
         end
       end
     end
